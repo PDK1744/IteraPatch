@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="IteraPatch.Cli/IteraPatch.Cli.csproj" />
+  <Project Path="IteraPatch.Core/IteraPatch.Core.csproj" />
+</Solution>
