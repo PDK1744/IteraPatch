@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\IteraPatch.Core\IteraPatch.Core.csproj" />
+    <ProjectReference Include="..\IteraPatch.Cli\IteraPatch.Cli.csproj" />
   </ItemGroup>
 
 </Project>
