@@ -609,20 +609,23 @@ public sealed class CliIntegrationTests
     private static string GetCliDllPath()
     {
         var baseDir = AppContext.BaseDirectory;
-        // Search for IteraPatch.Cli.dll in output directory or Cli bin directory
-        var localPath = Path.Combine(baseDir, "IteraPatch.Cli.dll");
-        if (File.Exists(localPath))
+        string[] candidates =
+        [
+            Path.Combine(baseDir, "itera.dll"),
+            Path.Combine(baseDir, "IteraPatch.Cli.dll"),
+            Path.GetFullPath(Path.Combine(baseDir, "../../../../IteraPatch.Cli/bin/Debug/net10.0/itera.dll")),
+            Path.GetFullPath(Path.Combine(baseDir, "../../../../IteraPatch.Cli/bin/Debug/net10.0/IteraPatch.Cli.dll"))
+        ];
+
+        foreach (var candidate in candidates)
         {
-            return localPath;
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
         }
 
-        var candidate = Path.GetFullPath(Path.Combine(baseDir, "../../../../IteraPatch.Cli/bin/Debug/net10.0/IteraPatch.Cli.dll"));
-        if (File.Exists(candidate))
-        {
-            return candidate;
-        }
-
-        throw new FileNotFoundException($"Cannot locate IteraPatch.Cli.dll from {baseDir}");
+        throw new FileNotFoundException($"Cannot locate itera.dll or IteraPatch.Cli.dll from {baseDir}");
     }
 
     private static async Task<(int ExitCode, string StandardOutput, string StandardError)> RunProcessAsync(

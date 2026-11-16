@@ -180,6 +180,11 @@ The only component that currently specializes in a single language ecosystem is 
 
 - **.NET 10 SDK** (or later) installed on your system.
 - **Docker Engine** or **Docker Desktop** running with an active Docker daemon.
+  > [!TIP]
+  > **Zero-Config Out of the Box:** The runner container executes in network isolation (`NetworkMode = "none"`). IteraPatch automatically handles this seamlessly:
+  > - **Auto-Provisioning:** On default runs, IteraPatch automatically provisions and caches an `iterapatch-python:3.11` image with `pytest` pre-installed on the first run.
+  > - **Virtualenv Detection:** If your repository contains a `.venv` or `venv` directory, IteraPatch automatically prepends it to `$PATH` inside the container so all your local dependencies are picked up without configuration.
+  > - **Custom Images:** You can also pass any custom container image via `-i` (e.g. `node:20`, `rust:latest`).
 - **Git** installed and target repositories initialized with Git (`git init`).
 - **LLM Endpoint** (OpenAI-compatible):
   - Local: [Ollama](https://ollama.com/), [vLLM](https://github.com/vllm-project/vllm), [LocalAI](https://localai.io/), or [LM Studio](https://lmstudio.ai/).
@@ -260,13 +265,20 @@ dotnet run --project IteraPatch.Cli -- run \
   --llm-model "qwen2.5-coder:7b"
 ```
 
-#### 2. Run with Custom Test Command and Docker Image
-Run Python tests with coverage flags inside a specific container:
+#### 2. Run with Custom Test Runner Image
+Base images like `python:3.11-slim` do not contain `pytest` by default. You can create a test image with your dependencies:
 ```bash
+# Build a runner image with pytest and your project requirements:
+docker build -t python-tester - <<'EOF'
+FROM python:3.11-slim
+RUN pip install --no-cache-dir pytest
+EOF
+
+# Run IteraPatch using the custom image:
 dotnet run --project IteraPatch.Cli -- run \
   --repo-path "/home/user/projects/my-service" \
-  --test-cmd "pytest -v --maxfail=1" \
-  --image "python:3.12-slim"
+  --image "python-tester" \
+  --test-cmd "pytest -v"
 ```
 
 #### 3. Run with Cloud LLM (OpenAI)

@@ -3,9 +3,11 @@ namespace IteraPatch.Core.Services;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Formats.Tar;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Docker.DotNet;
@@ -80,7 +82,7 @@ public sealed class DockerSandboxService : ISandboxService, IDisposable
             ? "/workspace"
             : _options.WorkingDirectory;
         var image = string.IsNullOrWhiteSpace(_options.Image)
-            ? "python:3.11-slim"
+            ? DefaultRunnerImage
             : _options.Image;
 
         var timeoutSeconds = request.TimeoutSeconds > 0
@@ -93,7 +95,7 @@ public sealed class DockerSandboxService : ISandboxService, IDisposable
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
         var linkedToken = linkedCts.Token;
 
-        await EnsureImageExistsAsync(image, linkedToken);
+        var effectiveImage = await ResolveEffectiveImageAsync(image, linkedToken);
 
         var cmd = new List<string> { request.Command };
         if (request.Arguments != null && request.Arguments.Count > 0)
@@ -113,6 +115,18 @@ public sealed class DockerSandboxService : ISandboxService, IDisposable
         if (!envList.Any(e => e.StartsWith("PYTHONUNBUFFERED=", StringComparison.OrdinalIgnoreCase)))
         {
             envList.Add("PYTHONUNBUFFERED=1");
+        }
+
+        // Auto-detect project virtual environments and add to PATH so project packages/pytest work out of the box
+        if (!envList.Any(e => e.StartsWith("PATH=", StringComparison.OrdinalIgnoreCase)))
+        {
+            envList.Add($"PATH={containerWorkDir}/.venv/bin:{containerWorkDir}/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin");
+        }
+
+        // Include workspace in PYTHONPATH so project modules can be imported directly
+        if (!envList.Any(e => e.StartsWith("PYTHONPATH=", StringComparison.OrdinalIgnoreCase)))
+        {
+            envList.Add($"PYTHONPATH={containerWorkDir}");
         }
 
         var mounts = new List<Mount>
@@ -145,7 +159,7 @@ public sealed class DockerSandboxService : ISandboxService, IDisposable
 
         var createParams = new CreateContainerParameters
         {
-            Image = image,
+            Image = effectiveImage,
             Cmd = cmd,
             Env = envList,
             WorkingDir = containerWorkDir,
@@ -177,10 +191,26 @@ public sealed class DockerSandboxService : ISandboxService, IDisposable
 
             readLogsTask = attachStream.ReadOutputToEndAsync(linkedToken);
 
-            await _dockerClient.Containers.StartContainerAsync(
-                containerId,
-                new ContainerStartParameters(),
-                linkedToken);
+            try
+            {
+                await _dockerClient.Containers.StartContainerAsync(
+                    containerId,
+                    new ContainerStartParameters(),
+                    linkedToken);
+            }
+            catch (DockerApiException ex) when (IsExecutableNotFound(ex))
+            {
+                stopwatch.Stop();
+                var missingCmd = request.Command;
+                _logger?.LogWarning("Test runner executable '{Command}' not found inside container image '{Image}'.", missingCmd, effectiveImage);
+                return new SandboxExecutionResult(
+                    ExitCode: 127,
+                    StandardOutput: string.Empty,
+                    StandardError: $"Error: Executable '{missingCmd}' was not found in $PATH inside container image '{effectiveImage}'. Ensure the test runner is installed in your image or project virtual environment.",
+                    Duration: stopwatch.Elapsed,
+                    TimedOut: false
+                );
+            }
 
             var waitTask = _dockerClient.Containers.WaitContainerAsync(containerId, linkedToken);
 
@@ -261,6 +291,90 @@ public sealed class DockerSandboxService : ISandboxService, IDisposable
     private static IDockerClient CreateDefaultDockerClient()
     {
         return new DockerClientConfiguration().CreateClient();
+    }
+
+    public const string DefaultRunnerImage = "python:3.11-slim";
+    public const string AutoProvisionedPythonImage = "iterapatch-python:3.11";
+
+    private async Task<string> ResolveEffectiveImageAsync(string image, CancellationToken cancellationToken)
+    {
+        // When using the default python:3.11-slim image, auto-resolve to an image containing pytest
+        if (string.Equals(image, DefaultRunnerImage, StringComparison.OrdinalIgnoreCase))
+        {
+            if (await ImageExistsAsync(AutoProvisionedPythonImage, cancellationToken))
+            {
+                return AutoProvisionedPythonImage;
+            }
+
+            try
+            {
+                _logger?.LogInformation("Auto-provisioning test runner image with pytest ('{AutoImage}')...", AutoProvisionedPythonImage);
+                await EnsureImageExistsAsync(DefaultRunnerImage, cancellationToken);
+                await BuildAutoProvisionedPythonImageAsync(cancellationToken);
+                if (await ImageExistsAsync(AutoProvisionedPythonImage, cancellationToken))
+                {
+                    return AutoProvisionedPythonImage;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug(ex, "Failed to auto-provision '{AutoImage}'. Falling back to base image '{BaseImage}'.", AutoProvisionedPythonImage, DefaultRunnerImage);
+            }
+
+            await EnsureImageExistsAsync(DefaultRunnerImage, cancellationToken);
+            return DefaultRunnerImage;
+        }
+
+        await EnsureImageExistsAsync(image, cancellationToken);
+        return image;
+    }
+
+    private async Task<bool> ImageExistsAsync(string image, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _dockerClient.Images.InspectImageAsync(image, cancellationToken);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task BuildAutoProvisionedPythonImageAsync(CancellationToken cancellationToken)
+    {
+        using var tarMemoryStream = new MemoryStream();
+        using (var tarWriter = new TarWriter(tarMemoryStream, TarEntryFormat.Pax, leaveOpen: true))
+        {
+            var dockerfileContent = $"FROM {DefaultRunnerImage}\nRUN pip install --no-cache-dir pytest\n";
+            var bytes = Encoding.UTF8.GetBytes(dockerfileContent);
+            var entry = new PaxTarEntry(TarEntryType.RegularFile, "Dockerfile")
+            {
+                DataStream = new MemoryStream(bytes)
+            };
+            tarWriter.WriteEntry(entry);
+        }
+        tarMemoryStream.Position = 0;
+
+        await _dockerClient.Images.BuildImageFromDockerfileAsync(
+            new ImageBuildParameters
+            {
+                Tags = new List<string> { AutoProvisionedPythonImage },
+                Dockerfile = "Dockerfile"
+            },
+            tarMemoryStream,
+            authConfigs: Array.Empty<AuthConfig>(),
+            headers: new Dictionary<string, string>(),
+            new Progress<JSONMessage>(),
+            cancellationToken);
+    }
+
+    private static bool IsExecutableNotFound(DockerApiException ex)
+    {
+        var message = ex.ResponseBody ?? ex.Message ?? string.Empty;
+        return message.Contains("executable file not found in $PATH", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("no such file or directory", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task EnsureImageExistsAsync(string image, CancellationToken cancellationToken)

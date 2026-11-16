@@ -387,6 +387,60 @@ public class DockerSandboxServiceTests
         Assert.Contains("integration stderr", result.StandardError);
         Assert.False(result.TimedOut);
     }
+
+    [Fact]
+    public async Task EnvironmentVariables_IncludesVenvPathsAndPythonPath()
+    {
+        var fakeClient = new FakeDockerClient
+        {
+            AttachStreamFactory = () => CreateFakeMultiplexedStream("ok\n", string.Empty),
+            WaitResponse = new ContainerWaitResponse { StatusCode = 0 }
+        };
+
+        var options = new SandboxOptions { WorkingDirectory = "/workspace" };
+        using var service = new DockerSandboxService(options, fakeClient);
+
+        var request = new SandboxExecutionRequest(
+            WorkingDirectory: "/test/repo",
+            Command: "pytest",
+            Arguments: Array.Empty<string>()
+        );
+
+        var result = await service.ExecuteAsync(request);
+
+        Assert.True(result.IsSuccess);
+        var env = fakeClient.LastCreatedParameters?.Env;
+        Assert.NotNull(env);
+        Assert.Contains("PATH=/workspace/.venv/bin:/workspace/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin", env);
+        Assert.Contains("PYTHONPATH=/workspace", env);
+    }
+
+    [Fact]
+    public async Task StartContainer_ExecutableNotFound_ReturnsExitCode127WithFriendlyError()
+    {
+        var fakeClient = new FakeDockerClient
+        {
+            AttachStreamFactory = () => CreateFakeMultiplexedStream(string.Empty, string.Empty),
+            StartException = new DockerApiException(
+                HttpStatusCode.BadRequest,
+                "{\"message\":\"failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: exec: \\\"pytest\\\": executable file not found in $PATH\"}")
+        };
+
+        using var service = new DockerSandboxService(fakeClient);
+
+        var request = new SandboxExecutionRequest(
+            WorkingDirectory: "/test/repo",
+            Command: "pytest",
+            Arguments: Array.Empty<string>()
+        );
+
+        var result = await service.ExecuteAsync(request);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(127, result.ExitCode);
+        Assert.Contains("Executable 'pytest' was not found in $PATH", result.StandardError);
+        Assert.False(result.TimedOut);
+    }
 }
 
 #region Fake Docker Client Implementations for Unit Testing
