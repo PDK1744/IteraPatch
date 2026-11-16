@@ -16,6 +16,7 @@
   - [The Recursive Self-Improvement (RSI) Loop](#the-recursive-self-improvement-rsi-loop)
   - [Safety & Isolation Invariants](#safety--isolation-invariants)
   - [System Architecture](#system-architecture)
+- [Language Support & Current Limitations](#language-support--current-limitations)
 - [Prerequisites](#prerequisites)
 - [Installation & Build](#installation--build)
 - [How to Use the CLI](#how-to-use-the-cli)
@@ -146,6 +147,32 @@ IteraPatch follows **Clean Architecture** principles, maintaining strict separat
 |  Mount: "ro")     | |  Diff DTOs)   |                 | JSON Chat API)    |
 +───────────────────+ +───────────────+                 +───────────────────+
 ```
+
+---
+
+## Language Support & Current Limitations
+
+IteraPatch is fundamentally **language-neutral** across nearly all subsystems:
+
+- **Docker Sandbox (`ISandboxService`):** Agnostic. Accepts any Docker runner image (`-i`, e.g. `python:3.11-slim`, `node:20-alpine`, `mcr.microsoft.com/dotnet/sdk:10.0`, `golang:1.22`, `rust:latest`) and any test command (`-t`, e.g. `pytest`, `npm test`, `dotnet test`, `cargo test`, `go test ./...`).
+- **Git Delta Service (`IGitDeltaService`):** Agnostic. Tracks line-level diffs on any source file or file extension (`.py`, `.js`, `.ts`, `.cs`, `.go`, `.rs`, etc.) via `LibGit2Sharp`.
+- **Blast Radius Validator (`IPatchValidator`):** Agnostic. Ensures suggested patches stay strictly within uncommitted Git diff intervals regardless of programming language.
+- **Atomic Patch Applier (`IPatchApplier`):** Agnostic. Executes search-and-replace snippet modifications against any source text file with automated rollback.
+- **Recursive Orchestrator (`IOrchestratorService`):** Agnostic. Enforces the verification loop, shell tokenization, and circuit breaker.
+
+### Current MVP Limitation: The Trace Parser (`ITraceParser`)
+
+The only component that currently specializes in a single language ecosystem is the **`RegexTraceParser`**:
+
+- **Specialized Pytest Parsing:** In the MVP release, `RegexTraceParser` contains regular expressions specifically tuned for Python's `pytest` failure blocks (`____ test_name ____`), Python tracebacks (`File "...", line X`), assertions (`assert a == b`, `AssertionError`), and summary lines to isolate the exact failing line (`failingLine`) matching the Git delta.
+- **Behavior with Non-Python Projects:** If you run IteraPatch against a non-Python repository (e.g. `--image node:20 --test-cmd "npm test"`), non-zero exit codes are still caught as test failures. The orchestrator triggers its fallback mechanism, packing the raw test output (`stdout`/`stderr`) and the full `gitDiff` into an `ExecutionFailure` payload sent to the LLM. The LLM can still generate patches and the patch applier will still apply them; however, fine-grained `failingLine` pinpointing is not available.
+- **Extensibility via Clean Architecture:** Adding native, first-class trace parsing for other ecosystems (e.g. Jest, xUnit, Go test, or Cargo) requires implementing the `ITraceParser` interface and registering it with Microsoft DI:
+  ```csharp
+  public interface ITraceParser
+  {
+      TraceParseResult Parse(string stdout, string stderr, GitDeltaReport gitDelta);
+  }
+  ```
 
 ---
 
@@ -399,4 +426,4 @@ dotnet test --verbosity normal
 
 Contributions are welcome! Please ensure all code conforms to Clean Architecture boundaries, includes corresponding unit tests in `IteraPatch.Tests`, and passes `dotnet test` before submitting pull requests.
 
-This project is licensed under the MIT License.
+This project is licensed under the [MIT License](LICENSE).
