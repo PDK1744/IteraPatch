@@ -385,6 +385,103 @@ public sealed class CliIntegrationTests
     }
 
     [Fact]
+    public async Task RunCommand_EmptyRepoPath_ReturnsExitCode2()
+    {
+        using var outWriter = new StringWriter();
+        using var errWriter = new StringWriter();
+
+        var runCommand = new RunCommand(output: outWriter, error: errWriter);
+        var rootCommand = Program.BuildCommandLine(runCommand);
+        var parseResult = rootCommand.Parse("run -r \"\"");
+
+        var exitCode = await parseResult.InvokeAsync(new System.CommandLine.InvocationConfiguration());
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("Pre-flight error: Repository path cannot be empty or whitespace.", errWriter.ToString());
+    }
+
+    [Fact]
+    public async Task RunCommand_EmptyTestCommand_ReturnsExitCode2()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("iterapatch_test_cmd_").FullName;
+        try
+        {
+            using var outWriter = new StringWriter();
+            using var errWriter = new StringWriter();
+
+            var runCommand = new RunCommand(output: outWriter, error: errWriter);
+            var rootCommand = Program.BuildCommandLine(runCommand);
+            var parseResult = rootCommand.Parse($"run -r \"{tempDir}\" -t \"\"");
+
+            var exitCode = await parseResult.InvokeAsync(new System.CommandLine.InvocationConfiguration());
+
+            Assert.Equal(2, exitCode);
+            Assert.Contains("Pre-flight error: Test command cannot be empty or whitespace.", errWriter.ToString());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RunCommand_EmptyImage_ReturnsExitCode2()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("iterapatch_test_img_").FullName;
+        try
+        {
+            using var outWriter = new StringWriter();
+            using var errWriter = new StringWriter();
+
+            var runCommand = new RunCommand(output: outWriter, error: errWriter);
+            var rootCommand = Program.BuildCommandLine(runCommand);
+            var parseResult = rootCommand.Parse($"run -r \"{tempDir}\" -i \"\"");
+
+            var exitCode = await parseResult.InvokeAsync(new System.CommandLine.InvocationConfiguration());
+
+            Assert.Equal(2, exitCode);
+            Assert.Contains("Pre-flight error: Docker image cannot be empty or whitespace.", errWriter.ToString());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RunCommand_EmptyLlmModel_ReturnsExitCode2()
+    {
+        var tempDir = Directory.CreateTempSubdirectory("iterapatch_test_model_").FullName;
+        try
+        {
+            using var outWriter = new StringWriter();
+            using var errWriter = new StringWriter();
+
+            var runCommand = new RunCommand(output: outWriter, error: errWriter);
+            var rootCommand = Program.BuildCommandLine(runCommand);
+            var parseResult = rootCommand.Parse($"run -r \"{tempDir}\" --llm-model \"\"");
+
+            var exitCode = await parseResult.InvokeAsync(new System.CommandLine.InvocationConfiguration());
+
+            Assert.Equal(2, exitCode);
+            Assert.Contains("Pre-flight error: LLM model cannot be empty or whitespace.", errWriter.ToString());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task RunCommand_OrchestratorException_ReturnsExitCode2()
     {
         var tempDir = Directory.CreateTempSubdirectory("iterapatch_test_exception_").FullName;

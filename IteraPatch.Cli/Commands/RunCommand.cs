@@ -125,7 +125,23 @@ public sealed class RunCommand : Command
         var verbose = parseResult.GetValue(VerboseOption);
 
         // Pre-flight validation
-        var fullRepoPath = Path.GetFullPath(repoPath);
+        if (string.IsNullOrWhiteSpace(repoPath))
+        {
+            await errWriter.WriteLineAsync("Pre-flight error: Repository path cannot be empty or whitespace.");
+            return 2;
+        }
+
+        string fullRepoPath;
+        try
+        {
+            fullRepoPath = Path.GetFullPath(repoPath);
+        }
+        catch (Exception ex)
+        {
+            await errWriter.WriteLineAsync($"Pre-flight error: Invalid repository path '{repoPath}': {ex.Message}");
+            return 2;
+        }
+
         if (!Directory.Exists(fullRepoPath))
         {
             await errWriter.WriteLineAsync($"Pre-flight error: Repository path does not exist: '{repoPath}'");
@@ -147,6 +163,12 @@ public sealed class RunCommand : Command
         if (string.IsNullOrWhiteSpace(image))
         {
             await errWriter.WriteLineAsync("Pre-flight error: Docker image cannot be empty or whitespace.");
+            return 2;
+        }
+
+        if (string.IsNullOrWhiteSpace(llmModel))
+        {
+            await errWriter.WriteLineAsync("Pre-flight error: LLM model cannot be empty or whitespace.");
             return 2;
         }
 
