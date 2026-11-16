@@ -485,3 +485,5 @@ $RECYCLE.BIN/
 # Dev Notes
 PROJECT_SPEC.md
 factory/
+gams.*
+FACTORY.md

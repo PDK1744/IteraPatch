@@ -1,0 +1,32 @@
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{cs,csx}]
+# Formatting
+csharp_new_line_before_open_brace = all
+csharp_space_after_cast = false
+csharp_space_after_keywords_in_control_flow_statements = true
+
+# Style
+csharp_prefer_braces = true:suggestion
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:suggestion
+dotnet_style_qualification_for_method = false:suggestion
+dotnet_style_qualification_for_event = false:suggestion
+
+# Naming conventions
+dotnet_naming_rule.interfaces_should_be_prefixed_with_i.severity = suggestion
+dotnet_naming_rule.interfaces_should_be_prefixed_with_i.symbols = interface
+dotnet_naming_rule.interfaces_should_be_prefixed_with_i.style = prefix_i
+
+dotnet_naming_symbols.interface.applicable_kinds = interface
+dotnet_naming_symbols.interface.applicable_accessibilities = *
+
+dotnet_naming_style.prefix_i.required_prefix = I
+dotnet_naming_style.prefix_i.capitalization = pascal_case
